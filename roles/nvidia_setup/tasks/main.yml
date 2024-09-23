@@ -1,0 +1,41 @@
+---
+- name: Install NVIDIA driver (open)
+  apt:
+    name: nvidia-headless-550-server-open
+    state: present
+    update_cache: yes
+
+- name: Install NVIDIA Fabric Manager and tools
+  apt:
+    name:
+      - nvtop
+      - python3-pip
+      - nvidia-utils-550-server
+      - libnvidia-nscq-550
+      - nvidia-fabricmanager-550
+    state: present
+    install_recommends: no
+
+- name: Reboot the server
+  reboot:
+
+- name: Wait for the server to come back online
+  wait_for_connection:
+    delay: 60
+    timeout: 300
+
+- name: Verify NVIDIA GPU installation
+  shell: nvidia-smi --list-gpus
+  register: nvidia_smi_output
+
+- name: Display NVIDIA GPU information
+  debug:
+    var: nvidia_smi_output.stdout_lines
+
+- name: Check Fabric state
+  shell: nvidia-smi -q -i 0 | grep -i -A 2 Fabric
+  register: fabric_state_output
+
+- name: Display Fabric state
+  debug:
+    var: fabric_state_output.stdout_lines

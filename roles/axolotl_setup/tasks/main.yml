@@ -1,0 +1,170 @@
+---
+- name: Add Git LFS repository
+  apt_repository:
+    repo: ppa:git-core/ppa
+    state: present
+  become: yes
+
+- name: Update apt cache
+  apt:
+    update_cache: yes
+  become: yes
+
+- name: Install Git LFS
+  apt:
+    name: git-lfs
+    state: present
+  become: yes
+
+- name: Install Git LFS for the ubuntu user
+  command: git lfs install --skip-repo
+  become: yes
+  become_user: ubuntu
+
+- name: Install awscli in PyTorch environment
+  shell: |
+    /home/ubuntu/miniconda3/bin/conda run -n pytorch pip install awscli packaging
+  args:
+    executable: /bin/bash
+  environment:
+    PATH: "/home/ubuntu/miniconda3/bin:{{ ansible_env.PATH }}"
+  become: yes
+  become_user: ubuntu
+
+- name: Install specific version of pydantic in PyTorch environment
+  shell: |
+    /home/ubuntu/miniconda3/bin/conda run -n pytorch pip install -U --no-cache-dir pydantic==1.10.10
+  args:
+    executable: /bin/bash
+  environment:
+    PATH: "/home/ubuntu/miniconda3/bin:{{ ansible_env.PATH }}"
+  become: yes
+  become_user: ubuntu
+
+- name: Install system packages
+  apt:
+    name:
+      - vim
+      - curl
+      - nano
+      - rsync
+      - s3fs
+      - net-tools
+      - nvtop
+      - infiniband-diags
+      - pdsh
+      - libaio-dev
+    state: present
+    allow_change_held_packages: yes
+  become: yes
+
+- name: add ubuntu user to root group
+  user:
+    name: ubuntu
+    groups: root
+    append: yes
+
+- name: Reset ssh connection to allow user changes to affect ansible user
+  ansible.builtin.meta:
+    reset_connection
+
+- name: Clone axolotl repository
+  git:
+    repo: 'https://github.com/axolotl-ai-cloud/axolotl.git'
+    dest: /workspace/axolotl
+    single_branch: true
+  become: yes
+  become_user: ubuntu
+
+- name: Install causal_conv1d in PyTorch environment
+  shell: |
+    /home/ubuntu/miniconda3/bin/conda run -n pytorch pip install causal_conv1d
+  args:
+    executable: /bin/bash
+  environment:
+    PATH: "/home/ubuntu/.local/bin:/home/ubuntu/miniconda3/bin:/home/ubuntu/miniconda3/envs/pytorch/bin:/home/ubuntu/miniconda3/condabin:/usr/local/cuda-12/bin:/usr/local/cuda-12/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin"
+    LD_LIBRARY_PATH: "/usr/local/cuda-12/lib64"
+    CUDA_HOME: "/usr/local/cuda"
+  become: yes
+  become_user: ubuntu
+
+- name: Install axolotl with extras in PyTorch environment
+  shell: |
+    /home/ubuntu/miniconda3/bin/conda run -n pytorch pip install -e /workspace/axolotl[deepspeed,flash-attn,optimizers]
+  args:
+    executable: /bin/bash
+  environment:
+    PATH: "/home/ubuntu/.local/bin:/home/ubuntu/miniconda3/bin:/home/ubuntu/miniconda3/envs/pytorch/bin:/home/ubuntu/miniconda3/condabin:/usr/local/cuda-12/bin:/usr/local/cuda-12/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin"
+    LD_LIBRARY_PATH: "/usr/local/cuda-12/lib64"
+    CUDA_HOME: "/usr/local/cuda"
+  become: yes
+  become_user: ubuntu
+
+#- name: Configure git fetch
+#  git_config:
+#    name: remote.origin.fetch
+#    scope: global
+#    value: "+refs/heads/*:refs/remotes/origin/*"
+#  become: yes
+#  become_user: ubuntu
+#
+#- name: Verify git fetch configuration
+#  command: git config --get remote.origin.fetch
+#  register: git_fetch_config
+#  become: yes
+#  become_user: ubuntu
+#
+#- name: Display git fetch configuration
+#  debug:
+#    var: git_fetch_config.stdout
+
+- name: Configure git credential helper
+  git_config:
+    name: credential.helper
+    scope: global
+    value: store
+  become: yes
+  become_user: ubuntu
+
+- name: Install tmux
+  apt:
+    name: tmux
+    state: present
+  become: yes
+
+- name: Add tmux configuration to .bashrc for interactive shells
+  blockinfile:
+    path: /home/ubuntu/.bashrc
+    block: |
+      # Run tmux only in interactive shells
+      if [[ $- == *i* ]] && [[ -z "$TMUX" ]]; then
+        tmux attach-session -t ssh_tmux || tmux new-session -s ssh_tmux
+      fi
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - TMUX CONFIGURATION"
+    state: present
+  become: yes
+  become_user: ubuntu
+
+- name: make sure /workspace/data/huggingface-cache/ exists
+  file:
+    path: /workspace/data/huggingface-cache/
+    state: directory
+    mode: 0777
+  become: yes
+  become_user: ubuntu
+
+- name: Add HF_HOME envs
+  lineinfile:
+    path: /home/ubuntu/.bashrc
+    line: 'export HF_HOME="/workspace/data/huggingface-cache/"'
+    state: present
+  become: yes
+  become_user: ubuntu
+
+- name: Add HF_HUB_ENABLE_HF_TRANSFER envs
+  lineinfile:
+    path: /home/ubuntu/.bashrc
+    line: 'export HF_HUB_ENABLE_HF_TRANSFER="1"'
+    state: present
+  become: yes
+  become_user: ubuntu

@@ -1,0 +1,9 @@
+---
+- hosts: voltage_park_servers
+  become: yes
+  roles:
+    - nvidia_setup
+    - cuda_setup
+    - storage_setup
+    - pytorch_setup
+    - axolotl_setup

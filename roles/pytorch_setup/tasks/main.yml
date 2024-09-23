@@ -1,0 +1,88 @@
+---
+- name: Check if Miniconda is already installed
+  stat:
+    path: /home/ubuntu/miniconda3
+  register: miniconda_install
+
+- name: Download Miniconda installer
+  get_url:
+    url: https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+    dest: /tmp/Miniconda3-latest-Linux-x86_64.sh
+    mode: '0755'
+  when: not miniconda_install.stat.exists
+
+- name: Install Miniconda
+  command: /bin/bash /tmp/Miniconda3-latest-Linux-x86_64.sh -b -p /home/ubuntu/miniconda3
+  when: not miniconda_install.stat.exists
+  become: yes
+  become_user: ubuntu
+
+- name: Initialize Conda
+  command: /home/ubuntu/miniconda3/bin/conda init bash
+  become: yes
+  become_user: ubuntu
+
+- name: Add Miniconda to PATH
+  lineinfile:
+    dest: /home/ubuntu/.bashrc
+    line: 'export PATH="/home/ubuntu/miniconda3/bin:$PATH"'
+    state: present
+  become: yes
+  become_user: ubuntu
+
+- name: Source bashrc to update PATH
+  shell: source /home/ubuntu/.bashrc
+  args:
+    executable: /bin/bash
+  become: yes
+  become_user: ubuntu
+
+- name: Conda to use pytorch 3.11
+  command: /home/ubuntu/miniconda3/bin/conda install python=3.11 -y
+  become: yes
+  become_user: ubuntu
+
+- name: Conda to update libstdc++
+  command: /home/ubuntu/miniconda3/bin/conda install -c conda-forge libstdcxx-ng -y
+  become: yes
+  become_user: ubuntu
+
+- name: Create PyTorch environment
+  command: /home/ubuntu/miniconda3/bin/conda create -n pytorch python=3.11 -y
+  become: yes
+  become_user: ubuntu
+
+- name: Add PyTorch environment activation to .bashrc
+  lineinfile:
+    path: /home/ubuntu/.bashrc
+    line: 'conda activate pytorch'
+    state: present
+  become: yes
+  become_user: ubuntu
+
+- name: Install PyTorch
+  shell: |
+    /home/ubuntu/miniconda3/bin/conda run -n pytorch conda install pytorch==2.3.1 torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia -y
+  args:
+    executable: /bin/bash
+  environment:
+    PATH: "/home/ubuntu/.local/bin:/home/ubuntu/miniconda3/bin:/home/ubuntu/miniconda3/envs/pytorch/bin:/home/ubuntu/miniconda3/condabin:/usr/local/cuda-12/bin:/usr/local/cuda-12/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin"
+    LD_LIBRARY_PATH: "/usr/local/cuda-12/lib64"
+    CUDA_HOME: "/usr/local/cuda"
+  become: yes
+  become_user: ubuntu
+
+- name: Verify PyTorch installation
+  shell: |
+    /home/ubuntu/miniconda3/bin/conda run -n pytorch python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
+  args:
+    executable: /bin/bash
+  register: pytorch_version
+  environment:
+    PATH: "/home/ubuntu/miniconda3/bin:{{ ansible_env.PATH }}"
+  become: yes
+  become_user: ubuntu
+
+- name: Display PyTorch version and CUDA availability
+  debug:
+    var: pytorch_version.stdout_lines

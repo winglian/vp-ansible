@@ -1,0 +1,94 @@
+---
+- name: Create physical volumes
+  command: pvcreate /dev/nvme{{ item }}n1
+  loop:
+    - 2
+    - 3
+    - 4
+    - 5
+
+- name: Create volume group
+  lvg:
+    vg: raidVG
+    pvs: /dev/nvme2n1,/dev/nvme3n1,/dev/nvme4n1,/dev/nvme5n1
+
+- name: Create logical volume (RAID 10)
+  lvol:
+    vg: raidVG
+    lv: raidLV
+    size: 100%VG
+    opts: --type raid10
+
+- name: Create ext4 filesystem
+  filesystem:
+    fstype: ext4
+    dev: /dev/raidVG/raidLV
+
+- name: add ubuntu user to root group
+  user:
+    name: ubuntu
+    groups: root
+    append: yes
+
+- name: Create /workspace directory
+  file:
+    path: /workspace
+    state: directory
+    mode: 'u=rwx,g=rwx,o=rx'
+  become: yes
+
+- name: Mount RAID volume
+  mount:
+    path: /workspace
+    src: /dev/raidVG/raidLV
+    fstype: ext4
+    state: mounted
+
+- name: ensure /workspace is chmod to 0775
+  file:
+    path: /workspace
+    mode: 'u=rwx,g=rwx,o=rx'
+  become: yes
+
+- name: Add RAID mount to fstab
+  lineinfile:
+    path: /etc/fstab
+    line: "/dev/raidVG/raidLV   /workspace   ext4   defaults   0 0"
+
+- name: Check if swap file exists
+  stat:
+    path: /var/tmp/swapfile
+  register: swapfile_exists
+
+- name: Check if swap is already in use
+  command: swapon -s
+  register: swap_in_use
+  changed_when: false
+
+- name: Create 2TiB swap file on RAID
+  command: fallocate -l 2048G /var/tmp/swapfile
+  args:
+    creates: /var/tmp/swapfile
+  when: not swapfile_exists.stat.exists
+  become: yes
+
+- name: Set up swap file
+  command: mkswap /var/tmp/swapfile
+  when:
+    - not swapfile_exists.stat.exists
+    - '"/var/tmp/swapfile" not in swap_in_use.stdout'
+  become: yes
+
+- name: Enable swap file
+  command: swapon /var/tmp/swapfile
+  when:
+    - not swapfile_exists.stat.exists
+    - '"/var/tmp/swapfile" not in swap_in_use.stdout'
+  become: yes
+
+- name: Add swap to fstab
+  lineinfile:
+    path: /etc/fstab
+    line: '/var/tmp/swapfile none swap sw 0 0'
+    state: present
+  become: yes

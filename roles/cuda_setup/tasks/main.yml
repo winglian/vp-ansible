@@ -1,0 +1,160 @@
+---
+- name: Download CUDA repository pin file
+  get_url:
+    url: https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin
+    dest: /etc/apt/preferences.d/cuda-repository-pin-600
+  become: yes
+
+- name: Download CUDA repository package
+  get_url:
+    url: https://developer.download.nvidia.com/compute/cuda/12.4.1/local_installers/cuda-repo-ubuntu2204-12-4-local_12.4.1-550.54.15-1_amd64.deb
+    dest: /tmp/cuda-repo-ubuntu2204-12-4-local_12.4.1-550.54.15-1_amd64.deb
+
+- name: Install CUDA repository package
+  apt:
+    deb: /tmp/cuda-repo-ubuntu2204-12-4-local_12.4.1-550.54.15-1_amd64.deb
+  become: yes
+
+- name: Find CUDA keyring file
+  find:
+    paths: /var/cuda-repo-ubuntu2204-12-4-local
+    patterns: 'cuda-*-keyring.gpg'
+  register: keyring_file
+  become: yes
+
+- name: Copy CUDA keyring
+  command: cp {{ item.path }} /usr/share/keyrings/
+  with_items: "{{ keyring_file.files }}"
+  when: keyring_file.matched > 0
+  become: yes
+
+- name: Fail if CUDA keyring not found
+  fail:
+    msg: "CUDA keyring file not found in /var/cuda-repo-ubuntu2204-12-4-local"
+  when: keyring_file.matched == 0
+
+- name: Download CUDA keyring
+  get_url:
+    url: https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
+    dest: /tmp/cuda-keyring_1.0-1_all.deb
+
+- name: Install CUDA keyring package
+  apt:
+    deb: /tmp/cuda-keyring_1.0-1_all.deb
+  become: yes
+
+- name: Download NVIDIA GPG key
+  get_url:
+    url: https://nvidia.github.io/libnvidia-container/gpgkey
+    dest: /tmp/nvidia-gpgkey
+
+- name: Dearmor NVIDIA GPG key
+  command: gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg /tmp/nvidia-gpgkey
+  args:
+    creates: /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  become: yes
+
+- name: Download NVIDIA container toolkit source list
+  get_url:
+    url: https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list
+    dest: /tmp/nvidia-container-toolkit.list
+
+- name: Add signed-by option to NVIDIA container toolkit source list
+  replace:
+    path: /tmp/nvidia-container-toolkit.list
+    regexp: 'deb https://'
+    replace: 'deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://'
+
+- name: Add NVIDIA container toolkit repository
+  copy:
+    src: /tmp/nvidia-container-toolkit.list
+    dest: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+    remote_src: yes
+  become: yes
+
+- name: Clean up temporary files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/nvidia-gpgkey
+    - /tmp/nvidia-container-toolkit.list
+
+- name: Update apt cache
+  apt:
+    update_cache: yes
+  become: yes
+
+- name: remove previous version of cuda toolkit
+  shell: apt-get remove -y nvidia-cuda-toolkit
+  become: yes
+
+- name: Install libnccl2 + CUDA toolkit 12.4
+  apt:
+    name:
+      - libnccl2=2.22.3-1+cuda12.4
+      - libnccl-dev=2.22.3-1+cuda12.4
+      - cuda-toolkit-12-4
+    state: present
+  become: yes
+
+- name: Update /etc/alternatives/cuda-12 for CUDA
+  shell: |
+    rm -f /etc/alternatives/cuda-12
+    ln -s /usr/local/cuda-12.4 /etc/alternatives/cuda-12
+  become: yes
+
+- name: Update alternatives for CUDA
+  shell: |
+    rm -f /etc/alternatives/cuda
+    ln -s /etc/alternatives/cuda-12 /etc/alternatives/cuda
+  become: yes
+
+- name: Update alternatives for CUDA
+  shell: |
+    rm -f /usr/local/cuda-12
+    ln -s /etc/alternatives/cuda-12 /usr/local/cuda-12
+  become: yes
+
+- name: Create CUDA environment file
+  copy:
+    dest: /etc/profile.d/cuda.sh
+    content: |
+      export PATH=/usr/local/cuda-12/bin${PATH:+:${PATH}}
+      export LD_LIBRARY_PATH=/usr/local/cuda-12/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
+    mode: '0644'
+  become: yes
+
+- name: Ensure CUDA environment file is sourced
+  lineinfile:
+    path: /etc/bash.bashrc
+    line: 'source /etc/profile.d/cuda.sh'
+    state: present
+  become: yes
+
+- name: Install CUDNN
+  apt:
+    name: nvidia-cudnn
+    state: present
+
+- name: Install Docker and NVIDIA container toolkit
+  apt:
+    name:
+      - docker.io
+      - nvidia-container-toolkit
+    state: present
+
+- name: Ensure Docker service is started and enabled
+  systemd:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: Add ubuntu user to docker group
+  user:
+    name: ubuntu
+    groups: docker
+    append: yes
+
+- name: Reset connection to allow user changes to affect ansible user
+  meta: reset_connection
